@@ -1,0 +1,135 @@
+from selenium import webdriver
+from selenium.webdriver.common.by import By
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions as EC
+from selenium.common.exceptions import NoSuchElementException, TimeoutException
+import time
+import pandas as pd
+
+# URL of the website
+WEBIEE = ""
+
+# Initialize the driver
+def initialize_driver():
+    driver = webdriver.Chrome()
+    driver.maximize_window()
+    return driver
+
+# Load the webpage
+def load_page(driver, url):
+    driver.get(url)
+    time.sleep(5)  # Wait for the page to load
+
+# Scrape bus routes
+def scrape_bus_routes(driver):
+    route_elements = driver.find_elements(By.CLASS_NAME, 'route')
+    ALL_BUS_ROUTES_LINK = [route.get_attribute('href') for route in route_elements]
+    ALL_BUS_ROUTES_NAME = [route.text.strip() for route in route_elements]
+    return ALL_BUS_ROUTES_LINK, ALL_BUS_ROUTES_NAME
+
+# Scrape bus details for each route
+def scrape_bus_details(driver, url, route_name):
+    bus_details = []
+    try:
+        driver.get(url)
+        time.sleep(5)  # Allow the page to load
+        
+        # Click the "View Buses" button if available
+        try:
+            view_buses_button = WebDriverWait(driver, 10).until(
+                EC.element_to_be_clickable((By.CLASS_NAME, "button"))
+            )
+            driver.execute_script("arguments[0].click();", view_buses_button)
+            time.sleep(5)  # Wait for buses to load
+            
+            # Scroll down to load all bus items
+            driver.execute_script("window.scrollTo(0, document.body.scrollHeight);")
+            time.sleep(5)  # Wait for the page to load more content
+
+            # Extract bus details
+            bus_name_elements = driver.find_elements(By.CLASS_NAME, "travels.lh-24.f-bold.d-color")
+            bus_type_elements = driver.find_elements(By.CLASS_NAME, "bus-type.f-12.m-top-16.l-color.evBus")
+            departing_time_elements = driver.find_elements(By.CLASS_NAME, "dp-time.f-19.d-color.f-bold")
+            duration_elements = driver.find_elements(By.CLASS_NAME, "dur.l-color.lh-24")
+            reaching_time_elements = driver.find_elements(By.CLASS_NAME, "bp-time.f-19.d-color.disp-Inline")
+            star_rating_elements = driver.find_elements(By.CLASS_NAME, "rating-sec.lh-24")
+            price_elements = driver.find_elements(By.CLASS_NAME, "fare.d-block")
+
+            seat_availability_elements = driver.find_elements(By.XPATH, "//div[contains(@class, 'seat-left m-top-30') or contains(@class, 'seat-left m-top-16')]")
+
+            for i in range(len(bus_name_elements)):
+                bus_detail = {
+                    "ROUTE_NAME": route_name,
+                    "ROUTE_ID": url,
+                    "BUS_NAME": bus_name_elements[i].text,
+                    "BUS_TYPE": bus_type_elements[i].text if i < len(bus_type_elements) else 'N/A',
+                    "DEPARTING_TIME": departing_time_elements[i].text if i < len(departing_time_elements) else 'N/A',
+                    "DURATION": duration_elements[i].text if i < len(duration_elements) else 'N/A',
+                    "REACHING_TIME": reaching_time_elements[i].text if i < len(reaching_time_elements) else 'N/A',
+                    "RATING": star_rating_elements[i].text if i < len(star_rating_elements) else '0',
+                    "PRICE": price_elements[i].text if i < len(price_elements) else 'N/A',
+                    "SEAT_AVAILABILITY": seat_availability_elements[i].text if i < len(seat_availability_elements) else '0'
+                }
+                bus_details.append(bus_detail)
+
+        except Exception as e:
+            print(f"Error occurred while scraping bus details for {url}: {str(e)}")
+            return []
+        
+    except (NoSuchElementException, TimeoutException) as e:
+        print(f"Error occurred while accessing {url}: {str(e)}")
+        return []
+
+    return bus_details
+
+# Scrape all pages and bus routes
+def scrape_all_pages():
+    ALL_BUS_DETAILS = []
+    for page in range(1, 6):  # Iterate over the 5 pages
+        try:
+            driver = initialize_driver()
+            load_page(driver, WEBIEE)
+
+            if page > 1:
+                pagination_tab = WebDriverWait(driver, 10).until(
+                    EC.presence_of_element_located((By.XPATH, f"//div[contains(@class, 'DC_117_pageTabs')][text()='{page}']"))
+                )
+                driver.execute_script("arguments[0].scrollIntoView();", pagination_tab)
+                driver.execute_script("arguments[0].click();", pagination_tab)
+                time.sleep(5)  # Wait for the page to load
+
+            ALL_BUS_ROUTES_LINK, ALL_BUS_ROUTES_NAME = scrape_bus_routes(driver)
+            
+            # Iterate over each route link and scrape bus details
+            for link, name in zip(ALL_BUS_ROUTES_LINK, ALL_BUS_ROUTES_NAME):
+                bus_details = scrape_bus_details(driver, link, name)
+                if bus_details:
+                    ALL_BUS_DETAILS.extend(bus_details)
+
+        except Exception as e:
+            print(f"Error occurred while accessing page {page}: {str(e)}")
+
+    return ALL_BUS_DETAILS
+
+# Scrape routes and details from all pages
+ALL_BUS_DETAILS = scrape_all_pages()
+
+# Convert the list of dictionaries to a DataFrame
+df = pd.DataFrame(ALL_BUS_DETAILS)
+
+# Save the DataFrame to a CSV file
+df.to_csv('bus_details.csv', index=False)
+
+driver.quit()
+#10 transportation links
+ kerala:https://www.redbus.in/online-booking/ksrtc-kerala/?utm_source=rtchometile
+ telegana:https://www.redbus.in/online-booking/tsrtc/?utm_source=rtchometile
+ kadamba:https://www.redbus.in/online-booking/ktcl/?utm_source=rtchometile
+ northbengal(westbengal2):https://www.redbus.in/online-booking/south-bengal-state-trans
+port-corporation-sbstc/?utm_source=rtchometile
+ Himachal pradesh:https://www.redbus.in/online-booking/hrtc/?utm_source=rtchometile
+ assam:https://www.redbus.in/online-booking/astc/?utm_source=rtchometile
+ westbengal:https://www.redbus.in/online-booking/wbtc-ctc/?utm_source=rtchometile
+ chandigarh:https://www.redbus.in/online-booking/chandigarh-transport-undertaking-ctu
+ punjab:https://www.redbus.in/online-booking/pepsu/?utm_source=rtchometile
+ Jammu and kashmir:https://www.redbus.in/online-booking/jksrtc
