@@ -1,0 +1,62 @@
+import pandas as pd
+import pymysql
+
+# List of CSV file paths
+csv_files = ["wbengal2_bus_details.csv", "chandigarh_bus_details.csv", "hp_bus_details.csv",
+             "kadamba_bus_details.csv", "KERALA_bus_details.csv", "punjab_bus_details.csv",
+             "tl_bus_details.csv", "wbengal_bus_details.csv", "northbengal_bus_details.csv",
+             "jk_bus_details.csv"]
+
+# Read each CSV file into a DataFrame and store it in a list
+df_list = [pd.read_csv(file) for file in csv_files]
+
+# Concatenate all DataFrames in the list
+combined_df = pd.concat(df_list, ignore_index=True)
+
+# Add id column
+combined_df['id'] = range(1, len(combined_df) + 1)
+
+# Replace 'INR ' in 'Price' column (if exists) and handle NaN values
+if 'Price' in combined_df.columns:
+    combined_df['Price'] = combined_df['Price'].fillna('').astype(str).str.replace('INR ', '', regex=False)
+
+# Extract digits from 'Seat_Availability' column (if exists) and handle NaN values
+if 'Seat_Availability' in combined_df.columns:
+    combined_df['Seat_Availability'] = combined_df['Seat_Availability'].fillna('').str.extract(r'(\d+)')
+
+# Save the cleaned DataFrame to CSV
+combined_df.to_csv("bus_routes.csv", index=False)
+
+# Connect to MySQL database
+myconnection = pymysql.connect(host='127.0.0.1', user='root', passwd='VIjay@25', database="redbus")
+
+# Drop rows with missing values
+combined_df = combined_df.dropna()
+
+# Convert DataFrame dtypes to MySQL compatible datatypes
+dtype_map = {
+    'float64': 'FLOAT',
+    'object': 'TEXT',
+    'int64': 'INT'
+}
+
+# Create MySQL table schema from DataFrame dtypes
+columns_and_types = ", ".join(f"{col} {dtype_map[str(dtype)]}" for col, dtype in combined_df.dtypes.items())
+table_name = "bus_routes"
+
+# Create table if not exists
+with myconnection.cursor() as cursor:
+    cursor.execute(f"CREATE TABLE IF NOT EXISTS {table_name} ({columns_and_types})")
+
+# Insert data into MySQL table
+with myconnection.cursor() as cursor:
+    for i in range(len(combined_df)):
+        # Use parameterized queries for security and performance
+        sql = f"INSERT INTO {table_name} VALUES ({','.join(['%s'] * len(combined_df.columns))})"
+        cursor.execute(sql, tuple(combined_df.iloc[i]))
+
+# Commit changes
+myconnection.commit()
+
+# Close the connection
+myconnection.close()
